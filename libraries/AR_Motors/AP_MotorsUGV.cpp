@@ -17,11 +17,12 @@
 #include <GCS_MAVLink/GCS.h>
 #include "AP_MotorsUGV.h"
 #include <AP_Relay/AP_Relay.h>
-
+#include <Fire_motor_485/Fire_motor_485.h>
 #define SERVO_MAX 4500  // This value represents 45 degrees and is just an arbitrary representation of servo max travel.
 
 extern const AP_HAL::HAL& hal;
 
+Fire_motor_485 F_motor;
 // singleton instance
 AP_MotorsUGV *AP_MotorsUGV::_singleton;
 
@@ -889,6 +890,7 @@ void AP_MotorsUGV::output_skid_steering(bool armed, float steering, float thrott
     }
 
     // add in throttle and steering
+    // 由于遥控器原因可能这里需要设置成反向
     float motor_left = throttle_scaled + steering_scaled;
     float motor_right = throttle_scaled - steering_scaled;
 
@@ -903,6 +905,11 @@ void AP_MotorsUGV::output_skid_steering(bool armed, float steering, float thrott
     // send pwm value to each motor
     output_throttle(SRV_Channel::k_throttleLeft, 100.0f * motor_left, dt);
     output_throttle(SRV_Channel::k_throttleRight, 100.0f * motor_right, dt);
+    // output_throttle(SRV_Channel::k_throttleLeft, 100.0f * motor_left, dt);
+    // output_throttle(SRV_Channel::k_throttleRight, 100.0f * motor_right, dt);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "motor_left:%f", 3000.0f * motor_left);
+    // gcs().send_text(MAV_SEVERITY_CRITICAL, "motor_right:%f", 3000.0f * motor_right);
+    // F_motor.motor_input(3000.0f * motor_left, 3000.0f * motor_right); // 485电机输入，控制内功等需要改变此处
 }
 
 // output for omni frames

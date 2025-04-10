@@ -28,6 +28,7 @@ public:
         SMART_RTL    = 12,
         GUIDED       = 15,
         INITIALISING = 16,
+        AOAFOLLOW    = 17,
     };
 
     // Constructor
@@ -393,6 +394,48 @@ private:
 
     // Mission change detector
     AP_Mission_ChangeDetector mis_change_detector;
+};
+
+class ModeAoafllow : public Mode
+{
+public:
+    Number mode_number() const override { return Number::AOAFOLLOW; }
+    const char *name4() const override { return "AOAFOLLOW"; }
+    // bool enter() override;  // 进入模式时的初始化操作
+    ModeAoafllow();
+    void update() override; // 模式的主循环逻辑
+    static const struct AP_Param::GroupInfo var_info[];
+
+protected:
+    bool _enter() override;
+    void _exit() override;
+    // 添加以下成员变量声明
+    uint32_t _last_update_ms;
+    uint32_t _data_timeout_ms;
+
+private:
+    // 其他成员...
+    AP_AOA_ALX aoa_sensor1;
+    AP_AOA_ALX aoa_sensor2;
+    AOAKalmanFilter _kalman_filter;
+    AP_MultiDistanceSensor multidist_sensor;
+    // void _exit() override;   // 退出模式时的清理操作
+    void _handle_data_loss(float dt);
+    bool _safety_check(float current_dist);
+    Vector2f _calculate_control(float dist, float angle, float dt);
+    void _set_actuators(const Vector2f &control);
+    void _send_debug_info(uint32_t timestamp, float dist, float angle, const Vector2f &control);
+    void reset_controllers();
+    // 参数声明
+    AP_Float _dist_kp, _dist_ki, _dist_kd;
+    AP_Float _angle_kp, _angle_ki, _angle_kd;
+    AP_Float _target_dist, _max_speed, _steer_limit;
+    // 添加油门和转向输出变量
+    bool _emergency_stop;
+    float _throttle_out;
+    float _steering_out;
+    AP_AOAPID _dist_pid;  // 距离控制PID
+    AP_AOAPID _angle_pid; // 角度控制PID
 };
 
 class ModeCircle : public Mode

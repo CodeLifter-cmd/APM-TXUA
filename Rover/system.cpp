@@ -14,6 +14,7 @@ static void failsafe_check_static()
 
 void Rover::init_ardupilot()
 {
+
 #if STATS_ENABLED == ENABLED
     // initialise stats module
     g2.stats.init();
@@ -157,7 +158,10 @@ void Rover::init_ardupilot()
     if (is_boat()) {
         rover.g2.mis_done_behave.set_default(ModeAuto::Mis_Done_Behave::MIS_DONE_BEHAVE_LOITER);
     }
-
+    // 增加初始化函数
+    firefight_rover.uart_init();
+    fire_motor_rover.motor_init();
+    fire_led.Fire_LED_Init(); // 初始化完成播放声音
     // flag that initialisation has completed
     initialised = true;
 }

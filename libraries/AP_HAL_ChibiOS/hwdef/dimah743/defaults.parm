@@ -79,4 +79,11 @@ EK3_SRC1_YAW 2
 # GPS config as NMEA
 GPS_TYPE 5
 
+# enable script
+SCR_ENABLE = 1
+SCR_HEAP_SIZE = 150000
+
+
+
+
 

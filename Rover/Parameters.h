@@ -32,7 +32,8 @@ public:
     //
     static const uint16_t k_format_version = 16;
 
-    enum {
+    enum
+    {
         // Layout version number, always key zero.
         //
         k_param_format_version = 0,
@@ -41,57 +42,57 @@ public:
 
         // Misc
         //
-        k_param_log_bitmask_old = 10,  // unused
-        k_param_num_resets_old,         // unused
+        k_param_log_bitmask_old = 10, // unused
+        k_param_num_resets_old,       // unused
         k_param_reset_switch_chan,
         k_param_initial_mode,
         k_param_scheduler,
         k_param_relay,
         k_param_BoardConfig,
-        k_param_pivot_turn_angle_old,   // unused
-        k_param_rc_13_old,  // unused
-        k_param_rc_14_old,  // unused
+        k_param_pivot_turn_angle_old, // unused
+        k_param_rc_13_old,            // unused
+        k_param_rc_14_old,            // unused
 
         // IO pins
-        k_param_rssi_pin = 20,  // unused, replaced by rssi_ library parameters
+        k_param_rssi_pin = 20, // unused, replaced by rssi_ library parameters
         k_param_battery_volt_pin,
         k_param_battery_curr_pin,
 
         k_param_precland = 24,
 
         // braking
-        k_param_braking_percent_old = 30,   // unused
-        k_param_braking_speederr_old,       // unused
+        k_param_braking_percent_old = 30, // unused
+        k_param_braking_speederr_old,     // unused
 
         // misc2
         k_param_log_bitmask = 40,
         k_param_gps,
-        k_param_serial0_baud,   // deprecated, can be deleted
-        k_param_serial1_baud,   // deprecated, can be deleted
-        k_param_serial2_baud,   // deprecated, can be deleted
+        k_param_serial0_baud, // deprecated, can be deleted
+        k_param_serial1_baud, // deprecated, can be deleted
+        k_param_serial2_baud, // deprecated, can be deleted
 
         // 97: RSSI
         k_param_rssi = 97,
-        k_param_rpm_sensor,     // rpm sensor 98
-        
+        k_param_rpm_sensor, // rpm sensor 98
+
         // 100: Arming parameters
         k_param_arming = 100,
 
         // 110: Telemetry control
         //
-        k_param_gcs0 = 110,         // stream rates for SERIAL0
-        k_param_gcs1,               // stream rates for SERIAL1
+        k_param_gcs0 = 110, // stream rates for SERIAL0
+        k_param_gcs1,       // stream rates for SERIAL1
         k_param_sysid_this_mav,
         k_param_sysid_my_gcs,
-        k_param_serial0_baud_old,   // unused
-        k_param_serial1_baud_old,   // unused
+        k_param_serial0_baud_old, // unused
+        k_param_serial1_baud_old, // unused
         k_param_telem_delay,
-        k_param_skip_gyro_cal,      // unused
-        k_param_gcs2,               // stream rates for SERIAL2
-        k_param_serial2_baud_old,   // unused
-        k_param_serial2_protocol,   // deprecated, can be deleted
-        k_param_serial_manager,     // serial manager library
-        k_param_cli_enabled_old,    // unused
+        k_param_skip_gyro_cal,    // unused
+        k_param_gcs2,             // stream rates for SERIAL2
+        k_param_serial2_baud_old, // unused
+        k_param_serial2_protocol, // deprecated, can be deleted
+        k_param_serial_manager,   // serial manager library
+        k_param_cli_enabled_old,  // unused
         k_param_gcs3,
         k_param_gcs_pid_mask,
         k_param_gcs4,
@@ -102,20 +103,20 @@ public:
         // 130: Sensor parameters
         //
         k_param_compass_enabled_deprecated = 130,
-        k_param_steering_learn,     // unused
-        k_param_NavEKF,             // deprecated - remove
-        k_param_mission,            // mission library
-        k_param_NavEKF2_old,        // deprecated - remove
+        k_param_steering_learn, // unused
+        k_param_NavEKF,         // deprecated - remove
+        k_param_mission,        // mission library
+        k_param_NavEKF2_old,    // deprecated - remove
         k_param_NavEKF2,
-        k_param_g2,                 // 2nd block of parameters
+        k_param_g2, // 2nd block of parameters
         k_param_NavEKF3,
 
         // 140: battery controls
-        k_param_battery_monitoring = 140,   // deprecated, can be deleted
-        k_param_volt_div_ratio,             // deprecated, can be deleted
-        k_param_curr_amp_per_volt,          // deprecated, can be deleted
-        k_param_input_voltage,              // deprecated, can be deleted
-        k_param_pack_capacity,              // deprecated, can be deleted
+        k_param_battery_monitoring = 140, // deprecated, can be deleted
+        k_param_volt_div_ratio,           // deprecated, can be deleted
+        k_param_curr_amp_per_volt,        // deprecated, can be deleted
+        k_param_input_voltage,            // deprecated, can be deleted
+        k_param_pack_capacity,            // deprecated, can be deleted
         k_param_battery,
 
         //
@@ -124,12 +125,12 @@ public:
         k_param_crosstrack_gain = 150,  // unused
         k_param_crosstrack_entry_angle, // unused
         k_param_speed_cruise,
-        k_param_speed_turn_gain,    // unused
-        k_param_speed_turn_dist,    // unused
-        k_param_ch7_option,         // unused
+        k_param_speed_turn_gain, // unused
+        k_param_speed_turn_dist, // unused
+        k_param_ch7_option,      // unused
         k_param_auto_trigger_pin,
         k_param_auto_kickstart,
-        k_param_turn_circle,  // unused
+        k_param_turn_circle,    // unused
         k_param_turn_max_g_old, // unused
 
         //
@@ -148,8 +149,8 @@ public:
         k_param_throttle_min_old = 170, // unused
         k_param_throttle_max_old,       // unused
         k_param_throttle_cruise,
-        k_param_throttle_slewrate_old,  // unused
-        k_param_throttle_reduction,     // unused
+        k_param_throttle_slewrate_old, // unused
+        k_param_throttle_reduction,    // unused
         k_param_pilot_steer_type,
         k_param_skid_steer_out_old, // unused
 
@@ -161,17 +162,17 @@ public:
         k_param_fs_gcs_enabled,
         k_param_fs_crash_check,
         k_param_fs_ekf_action,
-        k_param_fs_ekf_thresh,  // 187
+        k_param_fs_ekf_thresh, // 187
 
         // obstacle control
-        k_param_sonar_enabled = 190,  // deprecated, can be removed
-        k_param_sonar_old,            // unused
+        k_param_sonar_enabled = 190,    // deprecated, can be removed
+        k_param_sonar_old,              // unused
         k_param_rangefinder_trigger_cm, // unused
         k_param_rangefinder_turn_angle, // unused
         k_param_rangefinder_turn_time,  // unused
-        k_param_sonar2_old,           // unused
-        k_param_rangefinder_debounce, // unused
-        k_param_rangefinder,          // rangefinder object
+        k_param_sonar2_old,             // unused
+        k_param_rangefinder_debounce,   // unused
+        k_param_rangefinder,            // rangefinder object
 
         //
         // 210: driving modes
@@ -198,13 +199,13 @@ public:
         //
         k_param_camera,
         k_param_camera_mount,
-        k_param_camera_mount2,          // unused
+        k_param_camera_mount2, // unused
 
         //
         // 230: PID Controllers
         k_param_pidNavSteer = 230,
-        k_param_pidServoSteer,  // unused
-        k_param_pidSpeedThrottle_old,   // unused
+        k_param_pidServoSteer,        // unused
+        k_param_pidSpeedThrottle_old, // unused
 
         // high RC channels
         k_param_rc_9_old = 235, // unused
@@ -218,20 +219,22 @@ public:
         k_param_ins,
         k_param_compass,
         k_param_rcmap,
-        k_param_L1_controller,          // unused
-        k_param_steerController_old,    // unused
+        k_param_L1_controller,       // unused
+        k_param_steerController_old, // unused
         k_param_barometer,
         k_param_notify,
         k_param_button,
         k_param_osd,
         k_param_optflow,
 
-        k_param_logger = 253,  // Logging Group
+        k_param_logger = 253, // Logging Group
 
         // 254,255: reserved
 
         k_param_vehicle = 257, // vehicle common block of parameters
-        };
+        k_param_firefight_rover = 258,  // 堵转电流
+        k_param_mode_aoafollow = 259,   //跟随参数
+    };
 
     AP_Int16    format_version;
 
