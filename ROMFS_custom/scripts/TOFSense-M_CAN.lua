@@ -43,7 +43,7 @@ assert(param:add_table(PARAM_TABLE_KEY, PARAM_TABLE_PREFIX, 15), 'could not add 
   // @Values: 0:Set as Rangefinder, 1:Set as Proximity sensor
   // @User: Standard
 --]]
-SET_PRX = bind_add_param('PRX', 1, 0)
+SET_PRX = bind_add_param('PRX', 1, 1)
 
 --[[
   // @Param: TOFSENSE_NO
@@ -52,7 +52,7 @@ SET_PRX = bind_add_param('PRX', 1, 0)
   // @Range: 1 3
   // @User: Standard
 --]]
-MAX_SENSORS = bind_add_param('NO', 2, 1)
+MAX_SENSORS = bind_add_param('NO', 2, 3)
 
 --[[
   // @Param: TOFSENSE_MODE
@@ -276,7 +276,8 @@ function update()
   if (index < backend_driver[instance].last_index) then
     -- One cycle of data has come. Lets update all backends involved
     if SET_PRX:get() == 1 then
-      backend_driver[instance].lua_driver_backend:update_virtual_boundary()
+      backend_driver[instance].lua_driver_backend:
+      ()
     else
       update_rfnd = true
     end
@@ -321,6 +322,7 @@ end
 -- wrapper around update(). This calls update() and if update faults
 -- then an error is displayed, but the script is not stopped
 function protected_wrapper()
+
   local success, err = pcall(update)
   if not success then
       gcs:send_text(0, "Internal Error: " .. err)
@@ -332,4 +334,5 @@ function protected_wrapper()
 end
 
 -- start running update loop
+gcs:send_text(0, "TOFSENSE-M CAN Driver started")
 return protected_wrapper()
