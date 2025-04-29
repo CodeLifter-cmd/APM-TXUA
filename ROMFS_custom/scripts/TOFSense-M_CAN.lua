@@ -267,17 +267,16 @@ function update()
 
   -- Correct ID, so parse the data
   local distance = ((frame:data(0) | frame:data(1)<<8 | frame:data(2)<<16)) / 1000
-  gcs:send_text(0, "frame:data(0):"..tostring(frame:data(0)).." frame:data(1):"..tostring(frame:data(1)).." frame:data(2):"..tostring(frame:data(2)))
+  -- gcs:send_text(0, "frame:data(0):"..tostring(frame:data(0)).." frame:data(1):"..tostring(frame:data(1)).." frame:data(2):"..tostring(frame:data(2)))
   local status = frame:data(3)
   local index = frame:data(6)
   local update_rfnd = false
-  gcs:send_text(0, "Distance:"..tostring(distance).." Instance:"..tostring(instance))
+  -- gcs:send_text(0, "Distance:"..tostring(distance).." Instance:"..tostring(instance))
   
   if (index < backend_driver[instance].last_index) then
     -- One cycle of data has come. Lets update all backends involved
     if SET_PRX:get() == 1 then
-      backend_driver[instance].lua_driver_backend:
-      ()
+      backend_driver[instance].lua_driver_backend:update_virtual_boundary()
     else
       update_rfnd = true
     end
