@@ -48,7 +48,7 @@ void ModeAoafllow::update()
 {
     static float x_out = 0,y_out=0;
     const uint32_t now_ms = AP_HAL::millis();
-    const float dt_ms = (now_ms - _last_update_ms);
+    // const float dt_ms = (now_ms - _last_update_ms);
     const float dt = (now_ms - _last_update_ms) * 0.001f;
     _last_update_ms = now_ms;
     // gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow update start work");
@@ -57,17 +57,17 @@ void ModeAoafllow::update()
     float raw_dist2, raw_angle2;
     float filtered_angle = 0;
 
-    static uint8_t t_cnt = 1; // 计算周期标志位
+    // static uint8_t t_cnt = 1; // 计算周期标志位
 
-    if (t_cnt * dt_ms >= 50)
-    {
-        multidist_sensor.update();  //多超声波传感器采集更新程序
-        t_cnt = 1;
-    }
-    else
-    {
-        t_cnt++;
-    }
+    // if (t_cnt * dt_ms >= 50)
+    // {
+    //     multidist_sensor.update();  //多超声波传感器采集更新程序
+    //     t_cnt = 1;
+    // }
+    // else
+    // {
+    //     t_cnt++;
+    // }
 
 
     aoa_sensor1.update();       //UWB跟随传感器跟随程序

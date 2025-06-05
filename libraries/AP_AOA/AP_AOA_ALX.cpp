@@ -15,7 +15,7 @@ AP_AOA_ALX::AP_AOA_ALX() : _payload_len(0),
 
 void AP_AOA_ALX::init(uint8_t sernum)
 {
-    _uart = hal.serial(6);
+    _uart = hal.serial(sernum);
     _uart->begin(230400, 256, 256);
     _uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
     _uart->set_stop_bits(1);
