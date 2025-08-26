@@ -16,7 +16,7 @@ AP_AOA_ALX::AP_AOA_ALX() : _payload_len(0),
 void AP_AOA_ALX::init(uint8_t sernum)
 {
     _uart = hal.serial(sernum);
-    _uart->begin(230400, 256, 256);
+    // _uart->begin(230400, 256, 256);
     _uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
     _uart->set_stop_bits(1);
 }
@@ -25,7 +25,7 @@ void AP_AOA_ALX::update()
 {
     // gcs().send_text(MAV_SEVERITY_INFO, "观察传感器采集函数是否执行");
     uint8_t rec_num = _uart->available();
-    // gcs().send_text(MAV_SEVERITY_INFO,"rec_num:%d", rec_num); // 发送监控参数指令
+    gcs().send_text(MAV_SEVERITY_INFO,"rec_num:%d", rec_num); // 发送监控参数指令
     while (rec_num > 0)
     {
         rec_num--;

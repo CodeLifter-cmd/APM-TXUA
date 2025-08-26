@@ -46,16 +46,16 @@ bool ModeAoafllow::_enter()
 
 void ModeAoafllow::update()
 {
-    static float x_out = 0,y_out=0;
-    const uint32_t now_ms = AP_HAL::millis();
-    // const float dt_ms = (now_ms - _last_update_ms);
-    const float dt = (now_ms - _last_update_ms) * 0.001f;
-    _last_update_ms = now_ms;
-    // gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow update start work");
-    // 1. 获取原始传感器数据
-    float raw_dist1, raw_angle1;
-    float raw_dist2, raw_angle2;
-    float filtered_angle = 0;
+    // static float x_out = 0,y_out=0;
+    // const uint32_t now_ms = AP_HAL::millis();
+    // // const float dt_ms = (now_ms - _last_update_ms);
+    // const float dt = (now_ms - _last_update_ms) * 0.001f;
+    // _last_update_ms = now_ms;
+    // // gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow update start work");
+    // // 1. 获取原始传感器数据
+    // float raw_dist1, raw_angle1;
+    // float raw_dist2, raw_angle2;
+    // float filtered_angle = 0;
 
     // static uint8_t t_cnt = 1; // 计算周期标志位
 
@@ -72,81 +72,81 @@ void ModeAoafllow::update()
 
     aoa_sensor1.update();       //UWB跟随传感器跟随程序
     aoa_sensor2.update();
-    if (!aoa_sensor1.get_raw_data(raw_dist1, raw_angle1) ||
-        !aoa_sensor2.get_raw_data(raw_dist2, raw_angle2))
-    {
-        _handle_data_loss(dt);
-        return;
-    }
-    gcs().send_named_float("dist1",raw_dist1);
-    gcs().send_named_float("raw_angle1", raw_angle1);
+    // if (!aoa_sensor1.get_raw_data(raw_dist1, raw_angle1) ||
+    //     !aoa_sensor2.get_raw_data(raw_dist2, raw_angle2))
+    // {
+    //     _handle_data_loss(dt);
+    //     return;
+    // }
+    // gcs().send_named_float("dist1",raw_dist1);
+    // gcs().send_named_float("raw_angle1", raw_angle1);
 
-    gcs().send_named_float("dist2", raw_dist2);
-    gcs().send_named_float("raw_angle2", raw_angle2);
+    // gcs().send_named_float("dist2", raw_dist2);
+    // gcs().send_named_float("raw_angle2", raw_angle2);
 
-    // gcs().send_text(MAV_SEVERITY_INFO, "传感器测量值:%f , %f", raw_dist, raw_angle);
-    // 2. 卡尔曼滤波更新
-    _kalman_filter.predict(dt);
-    _kalman_filter.update(raw_dist1, raw_angle1);
+    // // gcs().send_text(MAV_SEVERITY_INFO, "传感器测量值:%f , %f", raw_dist, raw_angle);
+    // // 2. 卡尔曼滤波更新
+    // _kalman_filter.predict(dt);
+    // _kalman_filter.update(raw_dist1, raw_angle1);
     
-    _data_timeout_ms = now_ms;
+    // _data_timeout_ms = now_ms;
 
-    // 3. 获取滤波状态
-    const float filtered_dist1 = _kalman_filter.get_distance();
-    const float filtered_angle1 = _kalman_filter.get_angle();
+    // // 3. 获取滤波状态
+    // const float filtered_dist1 = _kalman_filter.get_distance();
+    // const float filtered_angle1 = _kalman_filter.get_angle();
 
-    _kalman_filter.update(raw_dist2, raw_angle2);
-    const float filtered_dist2 = _kalman_filter.get_distance();
-    const float filtered_angle2 = _kalman_filter.get_angle();
+    // _kalman_filter.update(raw_dist2, raw_angle2);
+    // const float filtered_dist2 = _kalman_filter.get_distance();
+    // const float filtered_angle2 = _kalman_filter.get_angle();
 
-    //转换到笛卡尔坐标系
+    // //转换到笛卡尔坐标系
 
-    float filtered_dist = (filtered_dist1 + filtered_dist2) / 2;
-    if (filtered_dist2 > filtered_dist1)
-    {
-        filtered_angle = filtered_angle1;
-    }
-    else
-    {
-        filtered_angle = filtered_angle2;
-        filtered_dist = -filtered_dist;
-    }
+    // float filtered_dist = (filtered_dist1 + filtered_dist2) / 2;
+    // if (filtered_dist2 > filtered_dist1)
+    // {
+    //     filtered_angle = filtered_angle1;
+    // }
+    // else
+    // {
+    //     filtered_angle = filtered_angle2;
+    //     filtered_dist = -filtered_dist;
+    // }
     
 
-    float y = filtered_dist * cosf(filtered_angle * 0.01745f);
-    float x = filtered_angle;
+    // float y = filtered_dist * cosf(filtered_angle * 0.01745f);
+    // float x = filtered_angle;
     
-    if (abs(y) > 20)
-    {
-        y = 20 * (y/abs(y));
-    }
+    // if (abs(y) > 20)
+    // {
+    //     y = 20 * (y/abs(y));
+    // }
 
-    if (abs(x) > 60)
-    {
-        x = 60 * (x / abs(x));
-    }
+    // if (abs(x) > 60)
+    // {
+    //     x = 60 * (x / abs(x));
+    // }
 
-    //底通滤波
-    x_out = x_out*0.5 + 0.5 * x;
-    y_out = y_out*0.5 + 0.5 * y;
+    // //底通滤波
+    // x_out = x_out*0.5 + 0.5 * x;
+    // y_out = y_out*0.5 + 0.5 * y;
 
-    gcs().send_named_float("x", x_out);
-    gcs().send_named_float("y", y_out);
+    // gcs().send_named_float("x", x_out);
+    // gcs().send_named_float("y", y_out);
 
-    // 4. 安全监测
-    if (!_safety_check(filtered_dist))
-    {
-        return;
-    }
+    // // 4. 安全监测
+    // if (!_safety_check(filtered_dist))
+    // {
+    //     return;
+    // }
 
-    // 5. PID控制计算
-    Vector2f control_out = _calculate_control(y, x, dt);
+    // // 5. PID控制计算
+    // Vector2f control_out = _calculate_control(y, x, dt);
 
-    // 6. 执行器输出
-    _set_actuators(control_out);
+    // // 6. 执行器输出
+    // _set_actuators(control_out);
 
-    // 7. 调试输出
-    _send_debug_info(now_ms, filtered_dist, filtered_angle, control_out);
+    // // 7. 调试输出
+    // _send_debug_info(now_ms, filtered_dist, filtered_angle, control_out);
 }
 
 void ModeAoafllow::_handle_data_loss(float dt)
