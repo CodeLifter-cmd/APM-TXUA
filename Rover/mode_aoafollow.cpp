@@ -29,7 +29,7 @@ bool ModeAoafllow::_enter()
 {
     // 初始化传感器
     aoa_sensor1.init(6);
-    aoa_sensor2.init(7);
+    // aoa_sensor2.init(7);
 
     // multidist_sensor.init();    // 初始化多超声波传感器
     //写入PID参数
@@ -47,13 +47,13 @@ bool ModeAoafllow::_enter()
 void ModeAoafllow::update()
 {
     // static float x_out = 0,y_out=0;
-    // const uint32_t now_ms = AP_HAL::millis();
-    // // const float dt_ms = (now_ms - _last_update_ms);
-    // const float dt = (now_ms - _last_update_ms) * 0.001f;
+    const uint32_t now_ms = AP_HAL::millis();
+    // const float dt_ms = (now_ms - _last_update_ms);
+    const float dt = (now_ms - _last_update_ms) * 0.001f;
     // _last_update_ms = now_ms;
     // // gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow update start work");
     // // 1. 获取原始传感器数据
-    // float raw_dist1, raw_angle1;
+    float raw_dist1, raw_angle1;
     // float raw_dist2, raw_angle2;
     // float filtered_angle = 0;
 
@@ -71,29 +71,24 @@ void ModeAoafllow::update()
 
 
     aoa_sensor1.update();       //UWB跟随传感器跟随程序
-    aoa_sensor2.update();
-    // if (!aoa_sensor1.get_raw_data(raw_dist1, raw_angle1) ||
-    //     !aoa_sensor2.get_raw_data(raw_dist2, raw_angle2))
-    // {
-    //     _handle_data_loss(dt);
-    //     return;
-    // }
-    // gcs().send_named_float("dist1",raw_dist1);
-    // gcs().send_named_float("raw_angle1", raw_angle1);
+    if (!aoa_sensor1.get_raw_data(raw_dist1, raw_angle1))
+    {
+        _handle_data_loss(dt);
+        return;
+    }
+    gcs().send_named_float("dist1",raw_dist1);
+    gcs().send_named_float("raw_angle1", raw_angle1);
 
-    // gcs().send_named_float("dist2", raw_dist2);
-    // gcs().send_named_float("raw_angle2", raw_angle2);
-
-    // // gcs().send_text(MAV_SEVERITY_INFO, "传感器测量值:%f , %f", raw_dist, raw_angle);
+    // gcs().send_text(MAV_SEVERITY_INFO, "传感器测量值:%f , %f", raw_dist1, raw_angle1);
     // // 2. 卡尔曼滤波更新
-    // _kalman_filter.predict(dt);
-    // _kalman_filter.update(raw_dist1, raw_angle1);
+    _kalman_filter.predict(dt);
+    _kalman_filter.update(raw_dist1, raw_angle1);
     
     // _data_timeout_ms = now_ms;
 
-    // // 3. 获取滤波状态
-    // const float filtered_dist1 = _kalman_filter.get_distance();
-    // const float filtered_angle1 = _kalman_filter.get_angle();
+    // 3. 获取滤波状态
+    const float filtered_dist1 = _kalman_filter.get_distance();
+    const float filtered_angle1 = _kalman_filter.get_angle();
 
     // _kalman_filter.update(raw_dist2, raw_angle2);
     // const float filtered_dist2 = _kalman_filter.get_distance();
@@ -113,40 +108,40 @@ void ModeAoafllow::update()
     // }
     
 
-    // float y = filtered_dist * cosf(filtered_angle * 0.01745f);
-    // float x = filtered_angle;
+    float y = filtered_dist1 * cosf(filtered_angle1 * 0.01745f);
+    float x = filtered_angle1 - 90.0f; //偏航90度改为前方为0度,误差数值在-180~180度之间
     
-    // if (abs(y) > 20)
-    // {
-    //     y = 20 * (y/abs(y));
-    // }
+    if (abs(y) > 20)   //误差距离限幅
+    {
+        y = 20 * (y/abs(y));
+    }
 
-    // if (abs(x) > 60)
-    // {
-    //     x = 60 * (x / abs(x));
-    // }
+    if (abs(x) > 120)
+    {
+        x = 60 * (x / abs(x));
+    }
 
-    // //底通滤波
+    //底通滤波
     // x_out = x_out*0.5 + 0.5 * x;
     // y_out = y_out*0.5 + 0.5 * y;
 
-    // gcs().send_named_float("x", x_out);
-    // gcs().send_named_float("y", y_out);
+    // gcs().send_named_float("x", x);
+    // gcs().send_named_float("y", y);
 
-    // // 4. 安全监测
-    // if (!_safety_check(filtered_dist))
-    // {
-    //     return;
-    // }
+    // 4. 安全监测
+    if (!_safety_check(filtered_dist1))
+    {
+        return;
+    }
 
-    // // 5. PID控制计算
-    // Vector2f control_out = _calculate_control(y, x, dt);
+    // 5. PID控制计算
+    Vector2f control_out = _calculate_control(y, x, dt);
 
-    // // 6. 执行器输出
-    // _set_actuators(control_out);
+    // 6. 执行器输出
+    _set_actuators(control_out);
 
-    // // 7. 调试输出
-    // _send_debug_info(now_ms, filtered_dist, filtered_angle, control_out);
+    // 7. 调试输出
+    // _send_debug_info(now_ms, filtered_dist1, filtered_angle1, control_out);
 }
 
 void ModeAoafllow::_handle_data_loss(float dt)
@@ -223,7 +218,7 @@ Vector2f ModeAoafllow::_calculate_control(float dist, float angle, float dt)
     _throttle_out = _dist_pid.get_pid(dist_error, dt, 1.0f / _max_speed);
     // _throttle_out = 0;
     // 角度控制
-    _steering_out = _angle_pid.get_pid(angle/10.0f, dt, 1.0f / _steer_limit);
+    _steering_out = _angle_pid.get_pid(angle, dt, 1.0f / _steer_limit);
     // _steering_out = 0;
     // 输出限幅
     _throttle_out = constrain_float(_throttle_out, -1.0f, 1.0f);
@@ -244,7 +239,7 @@ void ModeAoafllow::_set_actuators(const Vector2f &control)
     // gcs().send_named_float("set_steering：", (control.y * _steer_limit) * 4500);
     // gcs().send_named_float("set_throttle：", (control.x * _max_speed) * 100);
     // 设置转向和油门
-    if (abs(control.y) > 0.06)
+    if (abs(control.y) > 0.06)//转向死区设置
     {
         int8_t i = control.y/abs(control.y);
         rover.g2.motors.set_steering(-(control.y * _steer_limit) * 4000 + 450*i);
@@ -255,7 +250,7 @@ void ModeAoafllow::_set_actuators(const Vector2f &control)
         rover.g2.motors.set_steering(0);
     }
 
-    if (abs(control.x) > 0.02)
+    if (abs(control.x) > 0.02)//油门死区设置
     {
         int8_t i = -control.x / abs(control.x);
         rover.g2.motors.set_throttle((control.x * _max_speed) * 80 + i*10);
