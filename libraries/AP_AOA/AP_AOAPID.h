@@ -21,6 +21,6 @@ private:
     float _integrator = 0;
     float _last_error = 0;
     float _last_derivative = 0;
+    bool _initialised = false;
 };
-
 

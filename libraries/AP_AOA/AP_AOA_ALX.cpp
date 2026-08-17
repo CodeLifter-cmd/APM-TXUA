@@ -5,10 +5,15 @@
 //     AP_GROUPINFO("UART_NUM", 1, AP_AOA_ALX, _uart_num, 3),
 //     AP_GROUPEND};
 
-AP_AOA_ALX::AP_AOA_ALX() : _payload_len(0),
+AP_AOA_ALX::AP_AOA_ALX() : _uart(nullptr),
+                           _payload_len(0),
                            _payload_cnt(0),
                            _xor_sum(0),
-                           _parse_state(WAIT_HEADER1)
+                           _parse_state(WAIT_HEADER1),
+                           _sample_sequence(0),
+                           _consumed_sequence(0),
+                           _last_error_report_ms(0),
+                           _decode_error_count(0)
 {
     memset(&_current, 0, sizeof(_current));
 }
@@ -16,7 +21,7 @@ AP_AOA_ALX::AP_AOA_ALX() : _payload_len(0),
 void AP_AOA_ALX::init(uint8_t sernum)
 {
     _uart = hal.serial(sernum);
-    // _uart->begin(230400, 256, 256);
+    _uart->begin(115200, 256, 256);   // 波特率 115200
     _uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
     _uart->set_stop_bits(1);
 }
@@ -24,12 +29,11 @@ void AP_AOA_ALX::init(uint8_t sernum)
 void AP_AOA_ALX::update()
 {
     // gcs().send_text(MAV_SEVERITY_INFO, "观察传感器采集函数是否执行");
-    uint8_t rec_num = _uart->available();
+    uint32_t bytes_available = _uart->available();
 
-    gcs().send_text(MAV_SEVERITY_INFO,"rec_num:%d", rec_num); // 发送监控参数指令
-    while (rec_num > 0)
+    while (bytes_available > 0)
     {
-        rec_num--;
+        bytes_available--;
         uint8_t byte = _uart->read();
         // gcs().send_text(MAV_SEVERITY_INFO, "byte:%02x", byte);
         // gcs().send_named_float("byte",byte);   //发送监控参数指令
@@ -109,15 +113,21 @@ void AP_AOA_ALX::update()
             break;
         case CHECK_SUM:
         {
-            uint8_t calc_xor = _xor_sum;
-            if (byte == calc_xor)
+            _rx_buffer[_payload_len + 7] = byte;
+            DecodedFrame decoded{};
+            if (decode_frame(_rx_buffer, _payload_len + 8, decoded))
             {
-                _process_packet();
+                _process_packet(decoded);
             }
             else
             {
-                gcs().send_text(MAV_SEVERITY_INFO, "AOA XOR Err:%02x vs %02x\n", byte, calc_xor);
-                // gcs().send_text(MAV_SEVERITY_INFO, "_rx_buffer:%02x,%02x,%02x,%02x,%02x,%02x\n", _rx_buffer[125], _rx_buffer[124], _rx_buffer[123], _rx_buffer[122], _rx_buffer[121], _rx_buffer[120]);
+                _decode_error_count++;
+                const uint32_t now_ms = AP_HAL::millis();
+                if (now_ms - _last_error_report_ms >= 1000) {
+                    _last_error_report_ms = now_ms;
+                    gcs().send_text(MAV_SEVERITY_WARNING, "AOA decode errors: %lu", (unsigned long)_decode_error_count);
+                    _decode_error_count = 0;
+                }
             }
             _reset_parser();
             break;
@@ -135,37 +145,83 @@ void AP_AOA_ALX::_reset_parser()
     _xor_sum = 0;
     _parse_state = WAIT_HEADER1;
 }
-void AP_AOA_ALX::_process_packet()
+
+bool AP_AOA_ALX::DecodedFrame::is_acceptable() const
 {
-    // 解析协议0x17数据包
-    if (_rx_buffer[2] == 0x17)
-    {
-        // 距离解析 (cm转m)
-        uint32_t dist_cm = (uint32_t)_rx_buffer[15] << 24 |
-                           (uint32_t)_rx_buffer[14] << 16 |
-                           (uint32_t)_rx_buffer[13] << 8 |
-                           _rx_buffer[12];
-        _current.distance_m = dist_cm * 0.01f;
-
-        // 方位角解析 (int16_t)
-        int16_t azimuth = (int16_t)(_rx_buffer[18] << 8 | _rx_buffer[17]);
-        _current.azimuth_deg = azimuth;
-
-        _current.timestamp_ms = AP_HAL::millis();
-        _current.data_confirmed = _rx_buffer[19];
-        _current.data_RSSI = _rx_buffer[21];
-        gcs().send_named_float("data_confirmed", _current.data_confirmed);
-        gcs().send_named_float("data_RSSI", _current.data_RSSI);
-    }
+    return AP_AOA_ALX::confidence_is_acceptable(confidence);
 }
 
-bool AP_AOA_ALX::get_raw_data(float &dist_m, float &azimuth_deg)
+bool AP_AOA_ALX::confidence_is_acceptable(uint8_t confidence)
 {
-    if ((_current.data_confirmed > 50) && (AP_HAL::millis() - _current.timestamp_ms < 1000))
-    {
+    return confidence > 50;
+}
+
+bool AP_AOA_ALX::decode_frame(const uint8_t *frame, uint16_t frame_len, DecodedFrame &decoded)
+{
+    constexpr uint16_t frame_length = AOA_MAX_PAYLOAD + 8;
+    if (frame == nullptr || frame_len != frame_length ||
+        frame[0] != 0x59 || frame[1] != 0x4D || frame[2] != 0x17) {
+        return false;
+    }
+
+    const uint16_t payload_len = uint16_t(frame[5]) | (uint16_t(frame[6]) << 8);
+    if (payload_len != AOA_MAX_PAYLOAD) {
+        return false;
+    }
+
+    uint8_t checksum = 0;
+    for (uint16_t i = 0; i < frame_length - 1; i++) {
+        checksum += frame[i];
+    }
+    if (checksum != frame[frame_length - 1]) {
+        return false;
+    }
+
+    decoded.distance_cm = uint32_t(frame[12]) |
+                          (uint32_t(frame[13]) << 8) |
+                          (uint32_t(frame[14]) << 16) |
+                          (uint32_t(frame[15]) << 24);
+    const uint16_t raw_azimuth = uint16_t(frame[17]) | (uint16_t(frame[18]) << 8);
+    decoded.azimuth_deg = raw_azimuth < 0x8000U ?
+                          int16_t(raw_azimuth) : int16_t(int32_t(raw_azimuth) - 0x10000L);
+    decoded.confidence = frame[19];
+    decoded.rssi = frame[21];
+    return true;
+}
+
+void AP_AOA_ALX::_process_packet(const DecodedFrame &decoded)
+{
+    accept_decoded_frame(decoded, AP_HAL::millis());
+}
+
+bool AP_AOA_ALX::accept_decoded_frame(const DecodedFrame &decoded, uint32_t timestamp_ms)
+{
+    if (!decoded.is_acceptable() || decoded.distance_cm == 0) {
+        return false;
+    }
+    _current.distance_m = decoded.distance_cm * 0.01f;
+    _current.azimuth_deg = decoded.azimuth_deg;
+    _current.timestamp_ms = timestamp_ms;
+    _current.data_confirmed = decoded.confidence;
+    _current.data_RSSI = decoded.rssi;
+    _sample_sequence++;
+    return true;
+}
+
+uint32_t AP_AOA_ALX::valid_frame_age_ms(uint32_t now_ms) const
+{
+    return _sample_sequence == 0 ? UINT32_MAX : now_ms - _current.timestamp_ms;
+}
+
+bool AP_AOA_ALX::get_raw_data(float &dist_m, float &azimuth_deg, uint32_t *timestamp_ms)
+{
+    if (_consumed_sequence != _sample_sequence) {
         dist_m = _current.distance_m;
         azimuth_deg = _current.azimuth_deg;
-        _current.data_confirmed = 0;
+        if (timestamp_ms != nullptr) {
+            *timestamp_ms = _current.timestamp_ms;
+        }
+        _consumed_sequence = _sample_sequence;
         return true;
     }
     return false;

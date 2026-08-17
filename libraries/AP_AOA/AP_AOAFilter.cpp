@@ -1,5 +1,7 @@
 #include "AP_AOAFilter.h"
-#include "AP_Math/AP_Math.h"
+
+#include <AP_Math/AP_Math.h>
+
 AOAKalmanFilter::AOAKalmanFilter()
 {
     reset();
@@ -7,137 +9,74 @@ AOAKalmanFilter::AOAKalmanFilter()
 
 void AOAKalmanFilter::reset()
 {
-    // 初始化协方差矩阵
-    // for (int i = 0; i < 2; i++)
-    // {
-    //     for (int j = 0; j < 2; j++)
-    //     {
-    //         P[i][j] = (i == j) ? 10.0f : 0.0f; // 对角阵
-    //     }
-    // }
-    P[0][0] = 0.05f;
-    P[0][1] = 0.0f;
-    P[1][0] = 0.0f;
-    P[1][1] = 0.0017f;
-    // 过程噪声矩阵
-    Q[0][0] = 0.1f;
-    Q[0][1] = 0.0f;
-    Q[1][0] = 0.0f;
-    Q[1][1] = 0.1f;
-
-    // 测量噪声矩阵
-    R[0][0] = 0.0025f;
-    R[0][1] = 0.0f;
-    R[1][0] = 0.0f;
-    R[1][1] = 0.001f;
-
-    // 状态向量
-    x[0] = 0.0f; // 初始角度
-    x[1] = 1.0f; // 初始距离
+    _angle_deg = 0.0f;
+    _distance_m = 0.0f;
+    _jump_candidate_deg = 0.0f;
+    _jump_candidate_count = 0;
+    _last_input_angle_deg = 0.0f;
+    _have_input_angle = false;
+    _initialised = false;
 }
 
-void AOAKalmanFilter::predict(float dt)
+bool AOAKalmanFilter::set_angle_jump_limit(float angle_jump_deg)
 {
-    // 手动实现矩阵运算
-    float F[2][2] = {{1, -dt}, {0, 1}};
-    float FP[2][2], FPFt[2][2];
-
-    // F * P
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            FP[i][j] = F[i][0] * P[0][j] + F[i][1] * P[1][j];
-        }
-    }
-
-    // (F*P) * F^T
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            FPFt[i][j] = FP[i][0] * F[j][0] + FP[i][1] * F[j][1];
-        }
-    }
-
-    // 更新协方差矩阵
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            P[i][j] = FPFt[i][j] + Q[i][j];
-        }
-    }
+    const float value = MAX(angle_jump_deg, 0.0f);
+    if (is_equal(value, _angle_jump_deg)) { return false; }
+    _angle_jump_deg = value;
+    _jump_candidate_count = 0;
+    return true;
 }
 
-void AOAKalmanFilter::update(float meas_angle, float meas_dist)
+bool AOAKalmanFilter::set_time_constant(float time_constant_s)
 {
-    // 手动实现卡尔曼增益计算
-    float S[2][2], K[2][2];
-    float y[2] = {meas_angle - x[0], meas_dist - x[1]};
+    const float value = MAX(time_constant_s, 0.0f);
+    if (is_equal(value, _time_constant_s)) { return false; }
+    _time_constant_s = value;
+    return true;
+}
 
-    // 计算S = H*P*H' + R (H=I)
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            S[i][j] = P[i][j] + R[i][j];
-        }
+bool AOAKalmanFilter::update(float angle_deg, float distance_m, float dt)
+{
+    if (!isfinite(angle_deg) || !isfinite(distance_m) || distance_m <= 0.0f) {
+        return false;
     }
-
-    // 计算卡尔曼增益K = P * inv(S)
-    float det = S[0][0] * S[1][1] - S[0][1] * S[1][0];
-    if (fabsf(det) < 1e-5)
-        return; // 防止奇异矩阵
-
-    float invS[2][2] = {
-        {S[1][1] / det, -S[0][1] / det},
-        {-S[1][0] / det, S[0][0] / det}};
-
-    // K = P * invS
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            K[i][j] = P[i][0] * invS[0][j] + P[i][1] * invS[1][j];
+    const float wrapped_angle = wrap_180(angle_deg);
+    if (_have_input_angle && _angle_jump_deg > 0.0f &&
+        fabsf(wrap_180(wrapped_angle - _last_input_angle_deg)) > _angle_jump_deg) {
+        if (_jump_candidate_count == 0 ||
+            fabsf(wrap_180(wrapped_angle - _jump_candidate_deg)) > _angle_jump_deg) {
+            _jump_candidate_deg = wrapped_angle;
+            _jump_candidate_count = 1;
+        } else {
+            _jump_candidate_deg = wrapped_angle;
+            _jump_candidate_count++;
         }
-    }
-
-    // 状态更新：x = x + K*y
-    float x_new[2] = {0};
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            x_new[i] += K[i][j] * y[j];
+        _distance_m = distance_m;
+        if (_jump_candidate_count < 3) {
+            return true;
         }
-        x[i] += x_new[i];
+        _angle_deg = _jump_candidate_deg;
+        _last_input_angle_deg = _jump_candidate_deg;
+        _have_input_angle = true;
+        _jump_candidate_count = 0;
+        return true;
     }
-
-    // 协方差更新：P = (I - K)*P
-    float I_minus_K[2][2] = {
-        {1 - K[0][0], -K[0][1]},
-        {-K[1][0], 1 - K[1][1]}};
-    float new_P[2][2] = {0};
-
-    // 计算 (I-K)*P
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            for (int k = 0; k < 2; k++)
-            {
-                new_P[i][j] += I_minus_K[i][k] * P[k][j];
-            }
-        }
+    _jump_candidate_count = 0;
+    _last_input_angle_deg = wrapped_angle;
+    _have_input_angle = true;
+    if (!_initialised || _time_constant_s <= 0.0f || !is_positive(dt)) {
+        _angle_deg = wrapped_angle;
+        _distance_m = distance_m;
+        _initialised = true;
+        return true;
     }
+    const float alpha = constrain_float(dt / (_time_constant_s + dt), 0.0f, 1.0f);
+    _angle_deg = wrap_180(_angle_deg + alpha * wrap_180(wrapped_angle - _angle_deg));
+    _distance_m += alpha * (distance_m - _distance_m);
+    return true;
+}
 
-    // 更新协方差矩阵
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 2; j++)
-        {
-            P[i][j] = new_P[i][j];
-        }
-    }
-} // end update()
+float AOAKalmanFilter::get_body_angle(float offset_deg) const
+{
+    return wrap_180(_angle_deg - offset_deg);
+}

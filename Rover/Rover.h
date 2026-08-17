@@ -50,6 +50,7 @@
 #include <Fire_motor_485/Fire_motor_485.h> //添加电机驱动头文件
 #include <AP_AOA/AP_AOAFilter.h>           //添加AOA头文件
 #include <AP_AOA/AP_AOAPID.h>              //添加AOAPID头文件
+#include <AP_AOA/AP_AOAFollowControl.h>
 #include <AP_AOA/AP_AOA_ALX.h>             //添加AOALAX头文件
 #include <AP_AOA/AP_AOA_Ultrasonic_ranging.h> //添加AOA超声波测距头文件
 #if AP_EXTERNAL_CONTROL_ENABLED

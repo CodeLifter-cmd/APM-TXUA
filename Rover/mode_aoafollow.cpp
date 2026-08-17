@@ -3,23 +3,39 @@
 const AP_Param::GroupInfo ModeAoafllow::var_info[] = {
     // PID参数
     AP_GROUPINFO("DIST_KP", 1, ModeAoafllow, _dist_kp, 0.8f),
-    AP_GROUPINFO("DIST_KI", 2, ModeAoafllow, _dist_ki, 0.05f),
-    AP_GROUPINFO("DIST_KD", 3, ModeAoafllow, _dist_kd, 0.2f),
+    AP_GROUPINFO("DIST_KI", 2, ModeAoafllow, _dist_ki, 0.0f),
+    AP_GROUPINFO("DIST_KD", 3, ModeAoafllow, _dist_kd, 0.0f),
     AP_GROUPINFO("ANGLE_KP", 4, ModeAoafllow, _angle_kp, 0.6f),
-    AP_GROUPINFO("ANGLE_KI", 5, ModeAoafllow, _angle_ki, 0.1f),
-    AP_GROUPINFO("ANGLE_KD", 6, ModeAoafllow, _angle_kd, 0.15f),
+    AP_GROUPINFO("ANGLE_KI", 5, ModeAoafllow, _angle_ki, 0.0f),
+    AP_GROUPINFO("ANGLE_KD", 6, ModeAoafllow, _angle_kd, 0.0f),
     // 运行参数
     AP_GROUPINFO("TARGET_DIST", 7, ModeAoafllow, _target_dist, 1.0f),
     AP_GROUPINFO("MAX_SPEED", 8, ModeAoafllow, _max_speed, 1.0f),
     AP_GROUPINFO("STEER_LIM", 9, ModeAoafllow, _steer_limit, 1.0f),
+    AP_GROUPINFO("ANG_OFS", 10, ModeAoafllow, _angle_offset, 60.0f),
+
+    // @Param: DIST_HYST
+    // @DisplayName: AOA follow restart distance hysteresis
+    // @Description: Distance added to TARGET_DIST before a stopped vehicle may resume
+    // @Units: m
+    // @Range: 0.05 2.0
+    // @Increment: 0.05
+    // @User: Standard
+    AP_GROUPINFO("DIST_HYST", 12, ModeAoafllow, _dist_hyst, 0.3f),
+    AP_GROUPINFO("FILT_TC", 13, ModeAoafllow, _filter_tc, 0.2f),
+    AP_GROUPINFO("ANG_DZ", 14, ModeAoafllow, _angle_deadzone, 3.0f),
+    AP_GROUPINFO("ANG_JUMP", 15, ModeAoafllow, _angle_jump, 60.0f),
+    AP_GROUPINFO("STEER_RATE", 16, ModeAoafllow, _steering_rate, 18000.0f),
     AP_GROUPEND};
 
 ModeAoafllow::ModeAoafllow() : Mode(), // 必须首先初始化基类
-                               _last_update_ms(0),
-                               _data_timeout_ms(0),
+                               _was_armed(false),
+                               _outputs_stopped(true),
+                               _timeout_active(false),
+                               _last_sample_ms(0),
+                               _have_sample_time(false),
                                _throttle_out(0.0f),
-                               _steering_out(0.0f),
-                               _emergency_stop(false)
+                               _steering_out(0.0f)
 {
 
     AP_Param::setup_object_defaults(this, var_info);
@@ -33,11 +49,17 @@ bool ModeAoafllow::_enter()
 
     // multidist_sensor.init();    // 初始化多超声波传感器
     //写入PID参数
-    _dist_pid.set_gains(_dist_kp.get(), _dist_ki.get(), _dist_kd.get(), 0.01);
-    _angle_pid.set_gains(_angle_kp.get(), _angle_ki.get(), _angle_kd.get(), 0.01);
+    _control.configure(_dist_kp.get(), _dist_ki.get(), _dist_kd.get(), 0.01f,
+                       _angle_kp.get(), _angle_ki.get(), _angle_kd.get(), 0.01f,
+                       _target_dist.get(), _max_speed.get(), _steer_limit.get());
+    _control.set_steering_smoothing(_angle_deadzone.get(), _steering_rate.get());
+    _kalman_filter.set_time_constant(_filter_tc.get());
+    _kalman_filter.set_angle_jump_limit(_angle_jump.get());
 
     // 重置控制器状态
     reset_controllers();
+    _was_armed = hal.util->get_soft_armed();
+    stop_outputs();
 
     // 显示模式信息
     gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow ENGAGED");
@@ -48,12 +70,39 @@ void ModeAoafllow::update()
 {
     // static float x_out = 0,y_out=0;
     const uint32_t now_ms = AP_HAL::millis();
-    // const float dt_ms = (now_ms - _last_update_ms);
-    const float dt = (now_ms - _last_update_ms) * 0.001f;
-    // _last_update_ms = now_ms;
+    const bool armed = hal.util->get_soft_armed();
+    if (!armed) {
+        if (_was_armed) {
+            reset_controllers();
+        }
+        _was_armed = false;
+        stop_outputs();
+        return;
+    }
+    if (!_was_armed) {
+        _was_armed = true;
+        reset_controllers();
+        stop_outputs();
+    }
+    if (_control.set_distance_window(_target_dist.get(), _dist_hyst.get())) {
+        stop_outputs();
+        return;
+    }
+    const bool filter_changed = _kalman_filter.set_time_constant(_filter_tc.get()) |
+                                _kalman_filter.set_angle_jump_limit(_angle_jump.get());
+    const bool steering_config_changed =
+        _control.set_steering_smoothing(_angle_deadzone.get(), _steering_rate.get());
+    if (filter_changed || steering_config_changed) {
+        _kalman_filter.reset();
+        _last_sample_ms = 0;
+        _have_sample_time = false;
+        stop_outputs();
+        return;
+    }
     // // gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow update start work");
     // // 1. 获取原始传感器数据
     float raw_dist1, raw_angle1;
+    uint32_t sample_ms;
     // float raw_dist2, raw_angle2;
     // float filtered_angle = 0;
 
@@ -71,25 +120,27 @@ void ModeAoafllow::update()
 
 
     aoa_sensor1.update();       //UWB跟随传感器跟随程序
-    if (!aoa_sensor1.get_raw_data(raw_dist1, raw_angle1))
-    {
-        _handle_data_loss(dt);
+    if (!aoa_sensor1.get_raw_data(raw_dist1, raw_angle1, &sample_ms)) {
+        _handle_data_loss(now_ms);
         return;
     }
-    gcs().send_named_float("dist1",raw_dist1);
-    gcs().send_named_float("raw_angle1", raw_angle1);
 
     // gcs().send_text(MAV_SEVERITY_INFO, "传感器测量值:%f , %f", raw_dist1, raw_angle1);
     // // 2. 卡尔曼滤波更新
-    _kalman_filter.predict(dt);
-    _kalman_filter.update(raw_dist1, raw_angle1);
-    
-    // _data_timeout_ms = now_ms;
+    const float sample_dt = _have_sample_time ? (sample_ms - _last_sample_ms) * 0.001f : 0.0f;
+    if (!_kalman_filter.update(raw_angle1, raw_dist1, sample_dt)) {
+        gcs().send_text(MAV_SEVERITY_WARNING, "AOA invalid sample");
+        _control.reject_sample();
+        stop_outputs();
+        _handle_data_loss(now_ms);
+        return;
+    }
+    _last_sample_ms = sample_ms;
+    _have_sample_time = true;
+    _timeout_active = false;
 
     // 3. 获取滤波状态
     const float filtered_dist1 = _kalman_filter.get_distance();
-    const float filtered_angle1 = _kalman_filter.get_angle();
-
     // _kalman_filter.update(raw_dist2, raw_angle2);
     // const float filtered_dist2 = _kalman_filter.get_distance();
     // const float filtered_angle2 = _kalman_filter.get_angle();
@@ -108,18 +159,7 @@ void ModeAoafllow::update()
     // }
     
 
-    float y = filtered_dist1 * cosf(filtered_angle1 * 0.01745f);
-    float x = filtered_angle1 - 90.0f; //偏航90度改为前方为0度,误差数值在-180~180度之间
-    
-    if (abs(y) > 20)   //误差距离限幅
-    {
-        y = 20 * (y/abs(y));
-    }
-
-    if (abs(x) > 120)
-    {
-        x = 60 * (x / abs(x));
-    }
+    const float body_angle_deg = _kalman_filter.get_body_angle(_angle_offset.get());
 
     //底通滤波
     // x_out = x_out*0.5 + 0.5 * x;
@@ -128,14 +168,19 @@ void ModeAoafllow::update()
     // gcs().send_named_float("x", x);
     // gcs().send_named_float("y", y);
 
-    // 4. 安全监测
-    if (!_safety_check(filtered_dist1))
-    {
+    // 4. 距离锁存和PID控制
+    const bool was_too_close = _control.too_close();
+    if (!_control.accept_sample(filtered_dist1, body_angle_deg, sample_ms)) {
+        if (!was_too_close && _control.too_close()) {
+            gcs().send_text(MAV_SEVERITY_WARNING, "AOA target distance reached");
+        } else if (was_too_close && !_control.too_close()) {
+            gcs().send_text(MAV_SEVERITY_INFO, "AOA target distance cleared");
+        }
+        stop_outputs();
         return;
     }
-
-    // 5. PID控制计算
-    Vector2f control_out = _calculate_control(y, x, dt);
+    const auto &output = _control.output();
+    const Vector2f control_out(output.throttle, output.steering);
 
     // 6. 执行器输出
     _set_actuators(control_out);
@@ -144,123 +189,27 @@ void ModeAoafllow::update()
     // _send_debug_info(now_ms, filtered_dist1, filtered_angle1, control_out);
 }
 
-void ModeAoafllow::_handle_data_loss(float dt)
+void ModeAoafllow::_handle_data_loss(uint32_t now_ms)
 {
-    // 数据超时处理（超过1秒无数据）
-    if (AP_HAL::millis() - _data_timeout_ms > 1000)
-    {
-        gcs().send_text(MAV_SEVERITY_WARNING, "AOA Data Timeout!");
-        // 缓降速处理
-        _throttle_out *= 0.8f;
-        _steering_out *= 0.8f;
-        _set_actuators(Vector2f(_throttle_out, _steering_out));
-        // rover.set_mode(rover.mode_hold, ModeReason::FAILSAFE);
-        // gcs().send_text(MAV_SEVERITY_WARNING, "AOA Data Timeout!");
-        return;
+    if (_control.too_close()) {
+        stop_outputs();
     }
-
-}
-
-bool ModeAoafllow::_safety_check(float current_dist)
-{
-    float target_dist = _target_dist.get();
-    // static bool mul_flag_stop = false; // 多超声波避障传感器
-    // uint8_t stop_cnt = 0;              // 判断多个传感器是否达到停止
-    // float dist;
-    // for (uint8_t i = 0; i < 6; i++)
-    // {
-    //     if (multidist_sensor.get_distance(i, dist))
-    //     {
-    //         gcs().send_text(MAV_SEVERITY_INFO, "Sensor%d: %.2fm", i, dist);
-    //     }
-
-    //     if (dist < 2000.0f)
-    //     {
-    //         mul_flag_stop = true;
-    //         stop_cnt++;
-    //     }
-    //     /* code */
-    // }
-
-    // if (stop_cnt == 0)
-    // {
-    //     mul_flag_stop = false;
-    // }
-
-
-    // 紧急制动检查
-    // if ((current_dist < _target_dist) || (mul_flag_stop))
-    if (current_dist < target_dist)
-    {
-        _emergency_stop = true;
-        rover.g2.motors.set_throttle(0);
-        // rover.g2.motors.set_steering(0);
-
-        gcs().send_text(MAV_SEVERITY_EMERGENCY, "EMERGENCY STOP!");
-        return false;
+    if (_control.check_timeout(now_ms, 1000U)) {
+        if (!_timeout_active) {
+            gcs().send_text(MAV_SEVERITY_WARNING, "AOA Data Timeout");
+        }
+        _timeout_active = true;
+        _last_sample_ms = 0;
+        _have_sample_time = false;
+        stop_outputs();
     }
-
-    // 重置急停状态
-    // if (_emergency_stop && current_dist > target_dist + 0.5f && mul_flag_stop == false)
-    if (_emergency_stop && current_dist > (target_dist + 0.5f))
-    {
-        _emergency_stop = false;
-        reset_controllers();
-    }
-    return true;
-}
-
-Vector2f ModeAoafllow::_calculate_control(float dist, float angle, float dt)
-{
-    float target_dist = _target_dist.get();
-    // 距离控制
-    float dist_error = target_dist - dist;
-    _throttle_out = _dist_pid.get_pid(dist_error, dt, 1.0f / _max_speed);
-    // _throttle_out = 0;
-    // 角度控制
-    _steering_out = _angle_pid.get_pid(angle, dt, 1.0f / _steer_limit);
-    // _steering_out = 0;
-    // 输出限幅
-    _throttle_out = constrain_float(_throttle_out, -1.0f, 1.0f);
-    _steering_out = constrain_float(_steering_out, -1.0f, 1.0f);
-    // gcs().send_text(MAV_SEVERITY_INFO, "dist_error:%f,_throttle_out:%f,_steering_out:%f", dist_error, _throttle_out, _steering_out);
-
-    return Vector2f(_throttle_out, _steering_out);
 }
 
 void ModeAoafllow::_set_actuators(const Vector2f &control)
 {
-    if (_emergency_stop)
-    {
-        rover.g2.motors.set_throttle(0);
-        // rover.g2.motors.set_steering(0);
-        return;
-    }
-    // gcs().send_named_float("set_steering：", (control.y * _steer_limit) * 4500);
-    // gcs().send_named_float("set_throttle：", (control.x * _max_speed) * 100);
-    // 设置转向和油门
-    if (abs(control.y) > 0.06)//转向死区设置
-    {
-        int8_t i = control.y/abs(control.y);
-        rover.g2.motors.set_steering(-(control.y * _steer_limit) * 4000 + 450*i);
-        /* code */
-    }
-    else
-    {
-        rover.g2.motors.set_steering(0);
-    }
-
-    if (abs(control.x) > 0.02)//油门死区设置
-    {
-        int8_t i = -control.x / abs(control.x);
-        rover.g2.motors.set_throttle((control.x * _max_speed) * 80 + i*10);
-        /* code */
-    }
-    else
-    {
-        rover.g2.motors.set_throttle(0);
-    }
-    
+    rover.g2.motors.set_steering(control.y);
+    rover.g2.motors.set_throttle(control.x);
+    _outputs_stopped = is_zero(control.x) && is_zero(control.y);
 }
 
 void ModeAoafllow::_send_debug_info(uint32_t timestamp, float dist, float angle, const Vector2f &control)
@@ -287,8 +236,9 @@ void ModeAoafllow::_send_debug_info(uint32_t timestamp, float dist, float angle,
 
 void ModeAoafllow::reset_controllers()
 {
-    _dist_pid.reset();
-    _angle_pid.reset();
+    _control.reset();
+    _last_sample_ms = 0;
+    _have_sample_time = false;
     // 重置积分项和微分项
     _throttle_out = 0.0f;
     _steering_out = 0.0f;
@@ -296,11 +246,20 @@ void ModeAoafllow::reset_controllers()
     _kalman_filter.reset();
 }
 
+void ModeAoafllow::stop_outputs()
+{
+    _throttle_out = 0.0f;
+    _steering_out = 0.0f;
+    rover.g2.motors.set_throttle(0.0f);
+    rover.g2.motors.set_steering(0.0f);
+    _outputs_stopped = true;
+}
+
 // 模式退出处理
 void ModeAoafllow::_exit()
 {
-    rover.g2.motors.set_throttle(0);
-    rover.g2.motors.set_steering(0);
+    reset_controllers();
+    stop_outputs();
     gcs().send_text(MAV_SEVERITY_INFO, "AOA Follow DISENGAGED");
 }
 

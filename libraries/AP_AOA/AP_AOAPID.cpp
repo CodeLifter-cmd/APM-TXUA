@@ -14,6 +14,7 @@ void AP_AOAPID::reset()
     _integrator = 0;
     _last_error = 0;
     _last_derivative = 0;
+    _initialised = false;
 }
 void AP_AOAPID::set_gains(float kp, float ki, float kd, float imax)
 {
@@ -29,7 +30,7 @@ float AP_AOAPID::get_pid(float error, float dt, float scaler)
     // _ki.set(0.05);
     // _kd.set(0.2);
     // _imax.set(1);
-    if (dt <= 0.0f)
+    if (!isfinite(dt) || dt <= 0.0f)
     {
         return 0.0f;
     }
@@ -39,7 +40,7 @@ float AP_AOAPID::get_pid(float error, float dt, float scaler)
     _integrator = constrain_float(_integrator, -_imax, _imax);
 
     float dterm = 0.0f;
-    if (is_positive(dt))
+    if (_initialised)
     {
         float derivative = (error - _last_error) / dt;
         derivative = 0.2f * derivative + 0.8f * _last_derivative;
@@ -48,5 +49,6 @@ float AP_AOAPID::get_pid(float error, float dt, float scaler)
     }
 
     _last_error = error;
+    _initialised = true;
     return (pterm + _integrator + dterm) * scaler;
 }
