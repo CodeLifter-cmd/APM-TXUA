@@ -420,7 +420,7 @@ protected:
 
 private:
     // 其他成员...
-    AP_AOA_ALX aoa_sensor1;
+    AP_AOA_ALX_FIT aoa_sensor1;
     AP_AOA_ALX aoa_sensor2;
     AOAKalmanFilter _kalman_filter;
     AP_MultiDistanceSensor multidist_sensor;

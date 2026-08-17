@@ -52,6 +52,7 @@
 #include <AP_AOA/AP_AOAPID.h>              //添加AOAPID头文件
 #include <AP_AOA/AP_AOAFollowControl.h>
 #include <AP_AOA/AP_AOA_ALX.h>             //添加AOALAX头文件
+#include <AP_AOA/AP_AOA_ALX_FIT.h>        //ALX-AOA-FIT 新驱动（大端/XOR/多层门控）
 #include <AP_AOA/AP_AOA_Ultrasonic_ranging.h> //添加AOA超声波测距头文件
 #if AP_EXTERNAL_CONTROL_ENABLED
 #include "AP_ExternalControl_Rover.h"
