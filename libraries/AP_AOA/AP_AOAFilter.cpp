@@ -2,6 +2,10 @@
 
 #include <AP_Math/AP_Math.h>
 
+// orign confirms a large jump for 3 frames at 10Hz (300ms). ALX receives
+// AOA samples at 40Hz, so 12 frames preserve the same confirmation time.
+static constexpr uint8_t JUMP_CONFIRM_FRAMES = 12;
+
 AOAKalmanFilter::AOAKalmanFilter()
 {
     reset();
@@ -52,7 +56,7 @@ bool AOAKalmanFilter::update(float angle_deg, float distance_m, float dt)
             _jump_candidate_count++;
         }
         _distance_m = distance_m;
-        if (_jump_candidate_count < 3) {
+        if (_jump_candidate_count < JUMP_CONFIRM_FRAMES) {
             return true;
         }
         _angle_deg = _jump_candidate_deg;
@@ -78,5 +82,8 @@ bool AOAKalmanFilter::update(float angle_deg, float distance_m, float dt)
 
 float AOAKalmanFilter::get_body_angle(float offset_deg) const
 {
-    return wrap_180(_angle_deg - offset_deg);
+    // ALX azimuth increases to the vehicle's left, while Rover steering is
+    // positive to the right.  Invert the calibrated sensor angle here so all
+    // downstream control and diagnostics use Rover's steering convention.
+    return wrap_180(offset_deg - _angle_deg);
 }

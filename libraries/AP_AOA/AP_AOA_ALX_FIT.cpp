@@ -28,6 +28,11 @@ AP_AOA_ALX_FIT::AP_AOA_ALX_FIT() : _uart(nullptr),
                                    _heartbeat_count(0),
                                    _last_heartbeat_ms(0),
                                    _last_seq_id(0),
+                                   _diagnostic_event_sequence(0),
+                                   _diagnostic_drop_count(0),
+                                   _diagnostic_read_index(0),
+                                   _diagnostic_write_index(0),
+                                   _diagnostic_count(0),
                                    _have_seen_sn(false),
                                    _last_seen_batch_sn(0),
                                    _last_seen_dist_cm(0)
@@ -37,10 +42,50 @@ AP_AOA_ALX_FIT::AP_AOA_ALX_FIT() : _uart(nullptr),
 
 void AP_AOA_ALX_FIT::init(uint8_t sernum)
 {
+    // A mode re-entry starts a new control session.  Never expose a sample or
+    // parser/gating state retained from the previous session.
+    reset_session();
     _uart = hal.serial(sernum);
     _uart->begin(115200, 256, 256);   // 波特率 115200（驱动硬编码，MP 参数不控制）
+    // Buffered bytes have no reliable receive timestamp.  Do not let data
+    // accumulated before this session appear as a newly received target.
+    _uart->discard_input();
     _uart->set_flow_control(AP_HAL::UARTDriver::FLOW_CONTROL_DISABLE);
     _uart->set_stop_bits(1);
+}
+
+void AP_AOA_ALX_FIT::reset_session()
+{
+    if (_uart != nullptr) {
+        // update() timestamps frames when they are parsed, not when they enter
+        // the UART.  Flush bytes accumulated while disarmed before re-arming.
+        _uart->discard_input();
+    }
+
+    _reset_parser();
+    memset(&_current, 0, sizeof(_current));
+    _sample_sequence = 0;
+    _consumed_sequence = 0;
+    _last_error_report_ms = 0;
+    _decode_error_count = 0;
+    _gating_reject_count = 0;
+    _gating_accept_count = 0;
+    _heartbeat_count = 0;
+    _last_heartbeat_ms = 0;
+    _last_seq_id = 0;
+
+    for (auto &event : _diagnostic_queue) {
+        event = {};
+    }
+    _diagnostic_event_sequence = 0;
+    _diagnostic_drop_count = 0;
+    _diagnostic_read_index = 0;
+    _diagnostic_write_index = 0;
+    _diagnostic_count = 0;
+
+    _have_seen_sn = false;
+    _last_seen_batch_sn = 0;
+    _last_seen_dist_cm = 0;
 }
 
 void AP_AOA_ALX_FIT::_reset_parser()
@@ -145,6 +190,7 @@ void AP_AOA_ALX_FIT::update()
                 {
                     _heartbeat_count++;
                     _last_heartbeat_ms = AP_HAL::millis();
+                    _record_diagnostic(nullptr, GateResult::HEARTBEAT, _last_heartbeat_ms);
                     _reset_parser();
                     break;
                 }
@@ -158,13 +204,13 @@ void AP_AOA_ALX_FIT::update()
                 {
                     _decode_error_count++;
                     const uint32_t now_ms = AP_HAL::millis();
+                    _record_diagnostic(nullptr, GateResult::DECODE_ERROR, now_ms);
                     if (now_ms - _last_error_report_ms >= 1000)
                     {
                         _last_error_report_ms = now_ms;
                         gcs().send_text(MAV_SEVERITY_WARNING,
                                         "AOA FIT decode errors: %lu",
                                         (unsigned long)_decode_error_count);
-                        _decode_error_count = 0;
                     }
                 }
                 _reset_parser();
@@ -248,11 +294,13 @@ bool AP_AOA_ALX_FIT::accept_decoded_frame(const DecodedFrame &decoded, uint32_t 
     // L5: 距离合理性（0 < d ≤ MAXD）
     if (decoded.distance_cm == 0 || decoded.distance_cm > AOA_FIT_MAXD_CM) {
         _gating_reject_count++;
+        _record_diagnostic(&decoded, GateResult::DISTANCE, timestamp_ms);
         return false;
     }
     // L7: TagID 匹配（0=不校验）
     if (AOA_FIT_TAGID != 0 && decoded.tag_id != AOA_FIT_TAGID) {
         _gating_reject_count++;
+        _record_diagnostic(&decoded, GateResult::TAG_ID, timestamp_ms);
         return false;
     }
     // L8: BatchSn 连续性 —— 与"最近一次见到的帧"比（缺失允许 SNGAP 内）
@@ -262,6 +310,7 @@ bool AP_AOA_ALX_FIT::accept_decoded_frame(const DecodedFrame &decoded, uint32_t 
             // 序列倒退或跳跃过大 → 拒收，但用本帧刷新基线，防连锁拒收
             _last_seen_batch_sn = decoded.batch_sn;
             _gating_reject_count++;
+            _record_diagnostic(&decoded, GateResult::SEQUENCE, timestamp_ms);
             return false;
         }
     }
@@ -274,6 +323,7 @@ bool AP_AOA_ALX_FIT::accept_decoded_frame(const DecodedFrame &decoded, uint32_t 
             _last_seen_batch_sn = decoded.batch_sn;
             _last_seen_dist_cm = decoded.distance_cm;
             _gating_reject_count++;
+            _record_diagnostic(&decoded, GateResult::DISTANCE_STEP, timestamp_ms);
             return false;
         }
     }
@@ -286,6 +336,7 @@ bool AP_AOA_ALX_FIT::accept_decoded_frame(const DecodedFrame &decoded, uint32_t 
     _current.data_RSSI = decoded.rssi;
     _sample_sequence++;
     _gating_accept_count++;
+    _current.event_sequence = _record_diagnostic(&decoded, GateResult::ACCEPTED, timestamp_ms);
     // 更新 L8/L9 基线
     _have_seen_sn = true;
     _last_seen_batch_sn = decoded.batch_sn;
@@ -299,7 +350,8 @@ uint32_t AP_AOA_ALX_FIT::valid_frame_age_ms(uint32_t now_ms) const
     return _sample_sequence == 0 ? UINT32_MAX : now_ms - _current.timestamp_ms;
 }
 
-bool AP_AOA_ALX_FIT::get_raw_data(float &dist_m, float &azimuth_deg, uint32_t *timestamp_ms)
+bool AP_AOA_ALX_FIT::get_raw_data(float &dist_m, float &azimuth_deg, uint32_t *timestamp_ms,
+                                  uint32_t *event_sequence)
 {
     if (_consumed_sequence != _sample_sequence)
     {
@@ -309,8 +361,51 @@ bool AP_AOA_ALX_FIT::get_raw_data(float &dist_m, float &azimuth_deg, uint32_t *t
         {
             *timestamp_ms = _current.timestamp_ms;
         }
+        if (event_sequence != nullptr)
+        {
+            *event_sequence = _current.event_sequence;
+        }
         _consumed_sequence = _sample_sequence;
         return true;
     }
     return false;
+}
+
+uint32_t AP_AOA_ALX_FIT::_record_diagnostic(const DecodedFrame *frame, GateResult result,
+                                            uint32_t timestamp_ms)
+{
+    if (_diagnostic_count == DIAGNOSTIC_QUEUE_SIZE) {
+        _diagnostic_read_index = (_diagnostic_read_index + 1U) % DIAGNOSTIC_QUEUE_SIZE;
+        _diagnostic_count--;
+        _diagnostic_drop_count++;
+    }
+
+    DiagnosticEvent &event = _diagnostic_queue[_diagnostic_write_index];
+    event = {};
+    if (frame != nullptr) {
+        event.frame = *frame;
+    }
+    event.timestamp_ms = timestamp_ms;
+    event.event_sequence = ++_diagnostic_event_sequence;
+    event.decode_errors = _decode_error_count;
+    event.gating_rejects = _gating_reject_count;
+    event.gating_accepts = _gating_accept_count;
+    event.heartbeats = _heartbeat_count;
+    event.queue_drops = _diagnostic_drop_count;
+    event.result = result;
+
+    _diagnostic_write_index = (_diagnostic_write_index + 1U) % DIAGNOSTIC_QUEUE_SIZE;
+    _diagnostic_count++;
+    return event.event_sequence;
+}
+
+bool AP_AOA_ALX_FIT::get_diagnostic_event(DiagnosticEvent &event)
+{
+    if (_diagnostic_count == 0) {
+        return false;
+    }
+    event = _diagnostic_queue[_diagnostic_read_index];
+    _diagnostic_read_index = (_diagnostic_read_index + 1U) % DIAGNOSTIC_QUEUE_SIZE;
+    _diagnostic_count--;
+    return true;
 }

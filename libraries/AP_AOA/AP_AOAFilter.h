@@ -15,6 +15,7 @@ public:
     float get_angle() const { return _angle_deg; }
     float get_distance() const { return _distance_m; }
     float get_body_angle(float offset_deg) const;
+    uint8_t jump_candidate_count() const { return _jump_candidate_count; }
 
 private:
     float _angle_deg;

@@ -16,5 +16,9 @@ void Rover::set_servos(void)
         }
 
         g2.motors.output(arming.is_armed(), speed, G_Dt);
+        if (control_mode == &mode_aoafollow) {
+            // Capture the values after skid mixing, PWM calculation and output.
+            mode_aoafollow.write_actuator_log();
+        }
     }
 }

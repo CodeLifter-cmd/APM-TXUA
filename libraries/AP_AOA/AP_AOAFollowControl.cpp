@@ -16,9 +16,15 @@ void AP_AOAFollowControl::configure(float dist_kp, float dist_ki, float dist_kd,
 
 bool AP_AOAFollowControl::accept_sample(float distance_m, float body_angle_deg, uint32_t timestamp_ms)
 {
+    _diagnostics = {};
+    _diagnostics.distance_m = distance_m;
+    _diagnostics.body_angle_deg = body_angle_deg;
+    _diagnostics.distance_error = distance_m - _target_dist;
+    _diagnostics.angle_error = body_angle_deg;
     if (!isfinite(distance_m) || !isfinite(body_angle_deg) || distance_m <= 0.0f) {
         return false;
     }
+    _diagnostics.sample_valid = true;
 
     if (_have_valid_sample && timestamp_ms - _last_valid_sample_ms > DATA_TIMEOUT_MS) {
         reset_pid_state();
@@ -68,6 +74,7 @@ bool AP_AOAFollowControl::accept_sample(float distance_m, float body_angle_deg, 
             dt = 0.0f;
         }
     }
+    _diagnostics.dt = dt;
 
     _last_control_sample_ms = timestamp_ms;
     _have_control_sample = true;
@@ -80,6 +87,7 @@ bool AP_AOAFollowControl::accept_sample(float distance_m, float body_angle_deg, 
     _output.throttle = constrain_float(_dist_pid.get_pid(dist_error, dt) * 100.0f,
                                        0.0f, _max_speed * 100.0f);
     const bool in_angle_deadzone = fabsf(body_angle_deg) <= _angle_deadzone_deg;
+    _diagnostics.angle_deadzone = in_angle_deadzone;
     if (in_angle_deadzone) {
         _angle_pid.reset();
         _output.steering = 0.0f;
@@ -93,11 +101,13 @@ bool AP_AOAFollowControl::accept_sample(float distance_m, float body_angle_deg, 
             _output.steering = steering_target;
         }
     }
+    _diagnostics.control_accepted = true;
     return true;
 }
 
 void AP_AOAFollowControl::reject_sample()
 {
+    _diagnostics = {};
     reset_pid_state();
     _resume_frame_count = 0;
 }
@@ -158,4 +168,5 @@ void AP_AOAFollowControl::reset()
     _too_close = false;
     _resume_frame_count = 0;
     _config_change_pending = false;
+    _diagnostics = {};
 }

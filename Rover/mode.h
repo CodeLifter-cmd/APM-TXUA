@@ -406,6 +406,7 @@ public:
     bool requires_position() const override { return false; }
     bool requires_velocity() const override { return false; }
     void update() override; // 模式的主循环逻辑
+    void write_actuator_log();
     static const struct AP_Param::GroupInfo var_info[];
 
 protected:
@@ -427,7 +428,11 @@ private:
     // void _exit() override;   // 退出模式时的清理操作
     void _handle_data_loss(uint32_t now_ms);
     void _set_actuators(const Vector2f &control);
-    void _send_debug_info(uint32_t timestamp, float dist, float angle, const Vector2f &control);
+    void _drain_sensor_diagnostics();
+    void _write_filter_diagnostics(uint32_t event_sequence, float sample_dt,
+                                   float raw_dist, float raw_angle, bool filter_ok);
+    void _write_control_diagnostics(uint32_t event_sequence);
+    void _send_debug_info(uint32_t timestamp);
     void reset_controllers();
     void stop_outputs();
     // 参数声明
@@ -435,10 +440,31 @@ private:
     AP_Float _angle_kp, _angle_ki, _angle_kd;
     AP_Float _target_dist, _max_speed, _steer_limit, _angle_offset, _dist_hyst;
     AP_Float _filter_tc, _angle_deadzone, _angle_jump, _steering_rate;
+    AP_Int8 _debug;
     // 添加油门和转向输出变量
     float _throttle_out;
     float _steering_out;
     AP_AOAFollowControl _control;
+
+    struct DebugState {
+        uint32_t event_sequence = 0;
+        uint32_t last_text_ms = 0;
+        bool actuator_log_pending = false;
+        float raw_dist = 0.0f;
+        float raw_angle = 0.0f;
+        float filtered_dist = 0.0f;
+        float filtered_angle = 0.0f;
+        float body_angle = 0.0f;
+        float left_output = 0.0f;
+        float right_output = 0.0f;
+        float speed = 0.0f;
+        float yaw_rate = 0.0f;
+        uint32_t gating_rejects = 0;
+        uint32_t queue_drops = 0;
+        uint16_t sample_dt_ms = 0;
+        uint8_t jump_candidate_count = 0;
+        uint8_t last_reject_gate = 0;
+    } _debug_state;
 };
 
 class ModeCircle : public Mode

@@ -1,5 +1,9 @@
 #include "AP_AOAPID.h"
 #include <AP_Math/AP_Math.h>
+
+// Preserve orign's derivative filter response: alpha=0.2 at 10Hz.
+static constexpr float D_FILTER_ALPHA_10HZ = 0.2f;
+static constexpr float D_FILTER_DT_10HZ = 0.1f;
 AP_AOAPID::AP_AOAPID()
 {
     // AP_Param::setup_object_defaults(this, var_info);
@@ -15,6 +19,7 @@ void AP_AOAPID::reset()
     _last_error = 0;
     _last_derivative = 0;
     _initialised = false;
+    _info = {};
 }
 void AP_AOAPID::set_gains(float kp, float ki, float kd, float imax)
 {
@@ -32,6 +37,9 @@ float AP_AOAPID::get_pid(float error, float dt, float scaler)
     // _imax.set(1);
     if (!isfinite(dt) || dt <= 0.0f)
     {
+        _info = {};
+        _info.error = error;
+        _info.dt = dt;
         return 0.0f;
     }
 
@@ -43,12 +51,23 @@ float AP_AOAPID::get_pid(float error, float dt, float scaler)
     if (_initialised)
     {
         float derivative = (error - _last_error) / dt;
-        derivative = 0.2f * derivative + 0.8f * _last_derivative;
+        const float filter_dt = MIN(dt, D_FILTER_DT_10HZ);
+        const float alpha = constrain_float(
+            1.0f - powf(1.0f - D_FILTER_ALPHA_10HZ, filter_dt / D_FILTER_DT_10HZ),
+            0.0f,
+            1.0f);
+        derivative = alpha * derivative + (1.0f - alpha) * _last_derivative;
         dterm = derivative * _kd;
         _last_derivative = derivative;
     }
 
     _last_error = error;
     _initialised = true;
-    return (pterm + _integrator + dterm) * scaler;
+    _info.error = error;
+    _info.dt = dt;
+    _info.p = pterm * scaler;
+    _info.i = _integrator * scaler;
+    _info.d = dterm * scaler;
+    _info.output = _info.p + _info.i + _info.d;
+    return _info.output;
 }

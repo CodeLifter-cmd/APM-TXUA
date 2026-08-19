@@ -5,12 +5,24 @@
 class AP_AOAFollowControl
 {
 public:
-    static constexpr uint8_t RESUME_VALID_FRAMES = 5;
+    // orign uses 5 frames at 10Hz (500ms); ALX receives data at 40Hz.
+    static constexpr uint8_t RESUME_VALID_FRAMES = 20;
     static constexpr uint32_t DATA_TIMEOUT_MS = 1000;
 
     struct Output {
         float throttle;
         float steering;
+    };
+
+    struct Diagnostics {
+        float distance_m = 0.0f;
+        float body_angle_deg = 0.0f;
+        float distance_error = 0.0f;
+        float angle_error = 0.0f;
+        float dt = 0.0f;
+        bool sample_valid = false;
+        bool control_accepted = false;
+        bool angle_deadzone = false;
     };
 
     void configure(float dist_kp, float dist_ki, float dist_kd, float dist_imax,
@@ -23,6 +35,9 @@ public:
     bool set_steering_smoothing(float angle_deadzone_deg, float steering_rate_cd_s);
     void reset();
     const Output &output() const { return _output; }
+    const Diagnostics &diagnostics() const { return _diagnostics; }
+    const AP_AOAPID::Info &distance_pid_info() const { return _dist_pid.info(); }
+    const AP_AOAPID::Info &angle_pid_info() const { return _angle_pid.info(); }
     bool too_close() const { return _too_close; }
     uint8_t resume_frame_count() const { return _resume_frame_count; }
 
@@ -43,6 +58,7 @@ private:
     uint8_t _resume_frame_count = 0;
     bool _config_change_pending = false;
     Output _output{};
+    Diagnostics _diagnostics{};
 
     void reset_pid_state();
 };
